@@ -36,7 +36,7 @@ public class DimApp {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
 
-        //todo 生产环境要开启chink point
+       /* //todo 生产环境要开启chink point
         env.enableCheckpointing(60000*5L);  //5分钟做一次
         env.setStateBackend(new HashMapStateBackend()); //状态存储方式
         //chink point 相关设置
@@ -46,6 +46,7 @@ public class DimApp {
         checkpointConfig.setExternalizedCheckpointCleanup(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION); //Cancel任务时保存最后一次CheckPoint结果
         checkpointConfig.setMinPauseBetweenCheckpoints(5000L); //
         env.setRestartStrategy(RestartStrategies.fixedDelayRestart(3,1000L)); //设置重启策略
+        */
 
         //2.读取kafka topic_db主题数据创建数据流(为了方便复用,将kafkaSource的创建抽取到工具类中)
         KafkaSource<String> kafkaSource = KafkaUtil.getKafkaSource(Constant.TOPIC_ODS_DB, "dim-app");
