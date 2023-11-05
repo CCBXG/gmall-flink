@@ -93,5 +93,6 @@ public class DimApp {
         SingleOutputStreamOperator<JSONObject> processDS = connectDS.process(new DimTableProcessFunction());
 
 
+
     }
 }

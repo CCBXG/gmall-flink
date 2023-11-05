@@ -12,7 +12,7 @@ import org.apache.hadoop.hbase.client.Connection;
 /**
  * @Author 城北徐公
  * @Date 2023/11/3-21:14
- * 根据数据类型将数据转为javabean，还要负责删表，建表（故将删表建表操作写入工具类中）
+ * 根据数据类型将数据转为javabean，还要负责删表，建表（将删表建表操作抽取到工具类中）
  */
 public class DimCreateTableMapFunction extends RichMapFunction<String, TableProcess> {
 
@@ -25,7 +25,7 @@ public class DimCreateTableMapFunction extends RichMapFunction<String, TableProc
     @Override
     public TableProcess map(String value) throws Exception {
         JSONObject jsonObject = JSON.parseObject(value);
-        //获取操作数字段
+        //获取mysql变化流中的操作数字段
         String op = jsonObject.getString("op");
         TableProcess tableProcess;
         if ("d".equals(op)){
