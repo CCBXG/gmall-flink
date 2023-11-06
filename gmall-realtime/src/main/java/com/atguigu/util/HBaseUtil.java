@@ -138,13 +138,6 @@ public class HBaseUtil {
         return extendList.get(Math.abs(rowKey.hashCode()% extendList.size()))+rowKey;
     }
 
-    public static void main(String[] args) {
-        System.out.println(getRowKey("abc", "00|,01|,02|"));
-        System.out.println(getRowKey("def", "00|,01|,02|"));
-        System.out.println(getRowKey("saghsa", "00|,01|,02|"));
-        System.out.println(getRowKey("sajil", "00|,01|,02|"));
-    }
-
     /**
      * Hbase中删除数据
      * @param connection      连接

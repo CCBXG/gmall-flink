@@ -3,7 +3,7 @@ package com.atguigu.common;
 public class Constant {
 
     public static final String KAFKA_SERVERS = "hadoop102:9092,hadoop103:9092,hadoop104:9092";
-
+    public static final String ZK_SERVERS = "hadoop102:2181,hadoop103:2181,hadoop104:2181";
     public static final String TOPIC_ODS_DB = "topic_db";
     public static final String TOPIC_ODS_LOG = "topic_log";
 

@@ -22,7 +22,7 @@ public class TableProcess {
     // sink到 hbase 的时候的具体字段
     String sinkColumns;
     // sink到 hbase 的时候的主键字段
-    String sinkRowkey;
+    String sinkRowKey;
     // sink到 hbase 的时候的分区键
     String sinkExtend;
     //配置表的操作类型
