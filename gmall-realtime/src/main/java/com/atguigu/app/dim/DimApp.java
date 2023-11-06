@@ -19,10 +19,7 @@ import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
-import org.apache.flink.streaming.api.datastream.BroadcastConnectedStream;
-import org.apache.flink.streaming.api.datastream.BroadcastStream;
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
-import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.datastream.*;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.Collector;
@@ -95,9 +92,9 @@ public class DimApp {
         hbaseDS.print();
 
         //7.将过滤后的数据写入到hbase中
-        hbaseDS.addSink(new DimSinkFunction());
+        DataStreamSink<JSONObject> sinkDS = hbaseDS.addSink(new DimSinkFunction());
 
         //8.启动任务
-        env.execute();
+        env.execute("DimApp");
     }
 }
