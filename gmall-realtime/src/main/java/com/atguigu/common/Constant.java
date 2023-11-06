@@ -5,7 +5,7 @@ public class Constant {
     public static final String KAFKA_SERVERS = "hadoop102:9092,hadoop103:9092,hadoop104:9092";
 
     public static final String TOPIC_ODS_DB = "topic_db";
-    public static final String TOPIC_ODS_LOG = " topic_log";
+    public static final String TOPIC_ODS_LOG = "topic_log";
 
     public static final String HBASE_NAME_SPACE = "gmall_230524";
 

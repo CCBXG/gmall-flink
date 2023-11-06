@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSONException;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.JSONPathException;
 import com.atguigu.app.func.DimCreateTableMapFunction;
+import com.atguigu.app.func.DimSinkFunction;
 import com.atguigu.app.func.DimTableProcessFunction;
 import com.atguigu.bean.TableProcess;
 import com.atguigu.common.Constant;
@@ -31,7 +32,7 @@ import org.apache.flink.util.Collector;
  * @Date 2023/11/3-18:48
  */
 public class DimApp {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         //1.获取执行环境
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
@@ -90,9 +91,13 @@ public class DimApp {
         BroadcastConnectedStream<JSONObject, TableProcess> connectDS = jsonObjDS.connect(broadcast);
 
         //6.处理连接流  根据配置信息过滤数据流
-        SingleOutputStreamOperator<JSONObject> processDS = connectDS.process(new DimTableProcessFunction());
+        SingleOutputStreamOperator<JSONObject> hbaseDS = connectDS.process(new DimTableProcessFunction(mapStateDescriptor));
+        hbaseDS.print();
 
+        //7.将过滤后的数据写入到hbase中
+        hbaseDS.addSink(new DimSinkFunction());
 
-
+        //8.启动任务
+        env.execute();
     }
 }

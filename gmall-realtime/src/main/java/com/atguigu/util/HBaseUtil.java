@@ -1,5 +1,6 @@
 package com.atguigu.util;
 
+import com.alibaba.fastjson.JSONObject;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.TableName;
@@ -7,6 +8,8 @@ import org.apache.hadoop.hbase.client.*;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * @Author 城北徐公
@@ -100,9 +103,10 @@ public class HBaseUtil {
     }
 
     /**
+     * 将与分区键切分后再转为字节数组
      * sinkExtend:"00|,01|,02|,03|..."
      * @param sinkExtend  预分区键
-     * @return            处理预分区键
+     * @return            处理预分区键(建表时需要的数据)
      */
     public static byte[][] getSplitKeys(String sinkExtend) {
         if (sinkExtend == null) {
@@ -117,4 +121,108 @@ public class HBaseUtil {
         }
     }
 
+    /**
+     * 将预分区键和原本的rowKey组成新的rowKey
+     * @param rowKey      原本的rowKey
+     * @param sinkExtend  预分区键
+     * @return            新的rowKey
+     */
+    public static String getRowKey(String rowKey, String sinkExtend) {
+        String[] split = sinkExtend.split(",");
+        ArrayList<String> extendList = new ArrayList<>();
+        for (String s : split) {
+            extendList.add(s.replace("|","_"));
+        }
+        extendList.add(split[split.length-1]);//多一个前缀,为了防止最后一个分区没有数据
+        //预分区键拼接上原来的rowKey
+        return extendList.get(Math.abs(rowKey.hashCode()% extendList.size()))+rowKey;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(getRowKey("abc", "00|,01|,02|"));
+        System.out.println(getRowKey("def", "00|,01|,02|"));
+        System.out.println(getRowKey("saghsa", "00|,01|,02|"));
+        System.out.println(getRowKey("sajil", "00|,01|,02|"));
+    }
+
+    /**
+     * Hbase中删除数据
+     * @param connection      连接
+     * @param hbaseNameSpace  命名空间
+     * @param sinkTable       待删除数据的表名
+     * @param rowKey          待删除数据的rowKey
+     */
+    public static void deleteData(Connection connection, String hbaseNameSpace, String sinkTable, String rowKey) throws IOException {
+        //获取表对象
+        Table table = connection.getTable(TableName.valueOf(hbaseNameSpace + ":" + sinkTable));
+        //获取delete对象
+        Delete delete = new Delete(rowKey.getBytes());
+        //删除数据
+        table.delete(delete);
+        //关闭资源
+        table.close();
+
+    }
+
+    /**
+     * Hbase中一次性插入多条数据
+     * @param connection        连接
+     * @param hbaseNameSpace    命名空间
+     * @param sinkTable         待插入数据的表名
+     * @param rowKey            待插入数据的rowKey
+     * @param columnFamily      待插入数据的列族
+     * @param data              待插入的jsonObject类型数据,批量插入
+     */
+    public static void putJsonData(Connection connection, String hbaseNameSpace, String sinkTable, String rowKey, String columnFamily, JSONObject data) throws IOException {
+
+        //获取table对象
+        TableName tableName = TableName.valueOf(hbaseNameSpace + ":" + sinkTable);
+        Table table = connection.getTable(tableName);
+
+        //获取put对象
+        Put put = new Put(rowKey.getBytes());
+
+        //向put里面放入数据
+        Set<Map.Entry<String, Object>> entries = data.entrySet();
+        for (Map.Entry<String, Object> entry : entries) {
+            Object value = entry.getValue();
+            if (value!=null){
+                //tops: 一般如果是add就可以放入多条数据,set是会覆盖写
+                put.addColumn(columnFamily.getBytes(),entry.getKey().getBytes(),entry.getValue().toString().getBytes());
+            }
+        }
+
+        //向表对象中放入put对象
+        table.put(put);
+
+        //关闭资源
+        table.close();
+    }
+
+
+    /**
+     * 向hbase中插入单条数据
+     * @param connection  连接
+     * @param nameSpace   命名空间
+     * @param table       带插入数据表
+     * @param rowKey      待插入数据行键
+     * @param cf          列族
+     * @param cn          列
+     * @param value       待插入的单条数据
+     * @throws IOException
+     */
+    public static void putData(Connection connection, String nameSpace, String table, String rowKey, String cf, String cn, String value) throws IOException {
+        //获取表对象
+        TableName tableName = TableName.valueOf(nameSpace + ":" + table);
+        Table connectionTable = connection.getTable(tableName);
+        //创建Put对象
+        Put put = new Put(rowKey.getBytes());
+        put.addColumn(cf.getBytes(), cn.getBytes(), value.getBytes());
+        //执行插入数据操作
+        connectionTable.put(put);
+        //释放资源
+        connectionTable.close();
+    }
 }
+
+

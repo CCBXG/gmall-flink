@@ -15,6 +15,12 @@ import java.io.IOException;
  * 获取kafkaSource
  */
 public class KafkaUtil {
+    /**
+     * kafkaSource配置
+     * @param topic    要读的kafka主题
+     * @param groupId   消费者组id
+     * @return
+     */
     public static KafkaSource<String> getKafkaSource(String topic,String groupId){
         return KafkaSource.<String>builder()
                 .setBootstrapServers(Constant.KAFKA_SERVERS)
