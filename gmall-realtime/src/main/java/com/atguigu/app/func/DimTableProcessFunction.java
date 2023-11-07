@@ -93,7 +93,6 @@ public class DimTableProcessFunction extends BroadcastProcessFunction<JSONObject
     //这个value是kafka数据流里面的数据
     /**
      * 对kafka来的数据进行处理,对于kafka数据只要配置表中有的表项,以及过滤出data中需要写进hbase的数据
-     *
      * @param value The stream element.
      * @param ctx   A {@link ReadOnlyContext} that allows querying the timestamp of the element,
      *              querying the current processing/event time and updating the broadcast state. The context

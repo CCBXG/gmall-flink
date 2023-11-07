@@ -216,6 +216,22 @@ public class HBaseUtil {
         //释放资源
         connectionTable.close();
     }
+
+    /**
+     *
+     * @return
+     */
+    public static String getBaseDicDDL() {
+        return "CREATE TABLE dim_base_dic (\n" +
+                "    rowkey string,\n" +
+                "    info ROW<dic_name string>\n" +
+                ") WITH (\n" +
+                "    'connector' = 'hbase-2.2',\n" +
+                "    'table-name' = 'gmall_230524:dim_base_dic',\n" +
+                "    'zookeeper.quorum' = 'hadoop102:2181'\n" +
+                ")";
+    }
+
 }
 
 

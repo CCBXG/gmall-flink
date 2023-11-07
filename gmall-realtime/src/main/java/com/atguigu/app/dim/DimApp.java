@@ -27,7 +27,10 @@ import org.apache.flink.util.Collector;
 /**
  * @Author 城北徐公
  * @Date 2023/11/3-18:48
+ * hbase中dim维表写入
  */
+//数据流：web/app -> Nginx -> 业务服务器(Mysql) -> Maxwell -> Kafka(ODS) -> FlinkApp -> HBase(DIM)
+//程  序：Mock -> maxwell.sh -> Kafka(ZK) -> DimApp -> HBase(HDFS ZK)
 public class DimApp {
     public static void main(String[] args) throws Exception {
         //1.获取执行环境

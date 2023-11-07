@@ -2,8 +2,12 @@ package com.atguigu.util;
 
 import com.atguigu.common.Constant;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.connector.sink2.Sink;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchemaBuilder;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 
@@ -17,11 +21,12 @@ import java.io.IOException;
 public class KafkaUtil {
     /**
      * kafkaSource配置
-     * @param topic    要读的kafka主题
-     * @param groupId   消费者组id
+     *
+     * @param topic   要读的kafka主题
+     * @param groupId 消费者组id
      * @return
      */
-    public static KafkaSource<String> getKafkaSource(String topic,String groupId){
+    public static KafkaSource<String> getKafkaSource(String topic, String groupId) {
         return KafkaSource.<String>builder()
                 .setBootstrapServers(Constant.KAFKA_SERVERS)
                 .setTopics(topic)
@@ -30,9 +35,9 @@ public class KafkaUtil {
                 .setValueOnlyDeserializer(new DeserializationSchema<String>() {  //自定义序列化器，用于过滤掉空数据
                     @Override
                     public String deserialize(byte[] message) throws IOException {
-                        if (message == null){
+                        if (message == null) {
                             return null;
-                        }else {
+                        } else {
                             return new String(message);
                         }
                     }
@@ -49,4 +54,91 @@ public class KafkaUtil {
                 })
                 .build();
     }
+
+    /**
+     * kafkaSink配置
+     *
+     * @param topic
+     * @return
+     */
+    public static Sink<String> getKafkaSink(String topic) {
+        return KafkaSink.<String>builder()
+                .setBootstrapServers(Constant.KAFKA_SERVERS)
+                .setRecordSerializer(new KafkaRecordSerializationSchemaBuilder<String>()
+                        .setTopic(topic)
+                        .setValueSerializationSchema(new SimpleStringSchema())
+                        .build())
+//                .setTransactionalIdPrefix("pre-")
+//                .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
+                .build();
+    }
+
+    /**
+     * 获取kafka中所有topic_db中的数据
+     *
+     * @param groupId
+     * @return
+     */
+    public static String getTopicDbDDL(String groupId) {
+        return "create table ods_topic_db(\n" +
+                "    `database` string,\n" +
+                "    `table` string,\n" +
+                "    `type` string,\n" +
+                "    `ts` bigint,\n" +
+                "    `data` map<string,string>,\n" +
+                "    `old` map<string,string>,\n" +
+                "    `pt` AS PROCTIME(),\n" +
+                "    `rt` as TO_TIMESTAMP_LTZ(`ts`,0),\n" +
+                "    WATERMARK FOR `rt` AS `rt` - INTERVAL '2' SECOND\n" +
+                ")" + getKafkaSourceDDL("topic_db", groupId);
+    }
+
+    /**
+     * flinkSql kafkaSource
+     *
+     * @param topic
+     * @param groupId
+     * @return
+     */
+    public static String getKafkaSourceDDL(String topic, String groupId) {
+        return "with(\n" +
+                "    'connector' = 'kafka',\n" +
+                "    'topic' = '" + topic + "',\n" +
+                "    'properties.bootstrap.servers' = '" + Constant.KAFKA_SERVERS + "',\n" +
+                "    'properties.group.id' = '" + groupId + "',\n" +
+                "    'scan.startup.mode' = 'latest-offset',\n" +
+                "    'format' = 'json'\n" +
+                ")";
+    }
+
+    /**
+     * kafkaSink
+     *
+     * @param topic
+     * @return
+     */
+    public static String getKafkaSinkDDL(String topic) {
+        return " with (\n" +
+                "    'connector' = 'kafka',\n" +
+                "    'topic' = '" + topic + "',\n" +
+                "    'properties.bootstrap.servers' = '" + Constant.KAFKA_SERVERS + "',\n" +
+                "    'format' = 'json'\n" +
+                ")";
+    }
+
+    /**
+     * Upsert Kafka SQL 连接器 ,用于撤回流
+     * @param topic
+     * @return
+     */
+    public static String getUpsertKafkaSinkDDL(String topic) {
+        return "WITH (\n" +
+                "  'connector' = 'upsert-kafka',\n" +
+                "  'topic' = '" + topic + "',\n" +
+                "  'properties.bootstrap.servers' = '" + Constant.KAFKA_SERVERS + "',\n" +
+                "  'key.format' = 'json',\n" +
+                "  'value.format' = 'json'\n" +
+                ")";
+    }
+
 }
