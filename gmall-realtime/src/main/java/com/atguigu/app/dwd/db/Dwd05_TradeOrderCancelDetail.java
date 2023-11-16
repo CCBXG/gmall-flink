@@ -7,17 +7,16 @@ import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 
-import java.time.Duration;
-
 /**
  * @Author 城北徐公
- * @Date 2023/11/7-19:21
- * 交易域下单事务事实表
- * 任务:关联订单明细表、订单表、订单明细活动关联表、订单明细优惠券关联表四张事实业务表的insert操作，形成下单明细表，写入 Kafka 对应主题。
+ * @Date 2023/11/8-8:29
+ * 交易域取消订单事务事实表
+ * 从 Kafka 读取topic_db主题数据，关联筛选订单明细表、取消订单数据、
+ * 订单明细活动关联表、订单明细优惠券关联表四张事实业务表形成取消订单明细表，写入 Kafka 对应主题。
  */
 //数据流：web/app -> Nginx -> 业务服务器(Mysql) -> Maxwell -> Kafka(ODS) -> FlinkApp -> Kafka(DWD)
 //程  序：Mock -> maxwell.sh -> Kafka(ZK) -> Dwd04_TradeOrderDetail -> Kafka(ZK)
-public class Dwd04_TradeOrderDetail {
+public class Dwd05_TradeOrderCancelDetail {
     public static void main(String[] args) {
         //1.获取执行环境 FlinkSQL
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -42,10 +41,10 @@ public class Dwd04_TradeOrderDetail {
         */
 
         //2.读取kafka中topic_db数据并创建动态表
-        tableEnv.executeSql(KafkaUtil.getTopicDbDDL("Dwd04_TradeOrderDetail"));
+        tableEnv.executeSql(KafkaUtil.getTopicDbDDL("Dwd05_TradeOrderCancelDetail"));
 
-        //3.过滤出订单表数据
-        Table orderInfoTable = tableEnv.sqlQuery("" +
+        //3.过滤出订单表
+        Table orderinfoTable = tableEnv.sqlQuery("" +
                 "select\n" +
                 "    `data`['id'] id,\n" +
                 "    `data`['consignee'] consignee,\n" +
@@ -71,14 +70,16 @@ public class Dwd04_TradeOrderDetail {
                 "    `data`['feight_fee'] feight_fee,\n" +
                 "    `data`['feight_fee_reduce'] feight_fee_reduce,\n" +
                 "    `data`['refundable_time'] refundable_time,\n" +
-                "    `rt` rt\n"+
+                "     `pt` pt\n"+
                 "from ods_topic_db\n" +
                 "where `database`='gmall'\n" +
                 "and `table`='order_info'\n" +
-                "and `type`= 'insert' ");
-        tableEnv.createTemporaryView("order_info",orderInfoTable);
+                "and `type`= 'update' \n" +
+                "and `old`['order_status'] is not null\n" +
+                "and `data`['order_status'] = '1003'");
+        tableEnv.createTemporaryView("order_info",orderinfoTable);
 
-        //4.过滤出订单明细表数据
+        //4.过滤出订单明细表
         Table orderDetailTable = tableEnv.sqlQuery("" +
                 "select\n" +
                 "   `data`['id'] id,\n" +
@@ -97,11 +98,11 @@ public class Dwd04_TradeOrderDetail {
                 "from ods_topic_db\n" +
                 "where `database`='gmall'\n" +
                 "and `table`='order_detail'\n" +
-                "and `type`= 'insert' ");
+                "and `type`= 'insert'");
         tableEnv.createTemporaryView("order_detail",orderDetailTable);
 
-        //5.过滤出订单明细活动表数据
-        Table orderDetailActivityTable = tableEnv.sqlQuery("" +
+        //5.过滤出订单明细活动表
+        Table orderDetailActivity = tableEnv.sqlQuery("" +
                 "select\n" +
                 "    `data`['id'] id,\n" +
                 "    `data`['order_id'] order_id,\n" +
@@ -115,10 +116,10 @@ public class Dwd04_TradeOrderDetail {
                 "where `database`='gmall'\n" +
                 "and `table`='order_detail_activity'\n" +
                 "and `type`= 'insert' ");
-        tableEnv.createTemporaryView("order_detail_activity",orderDetailActivityTable);
+        tableEnv.createTemporaryView("order_detail_activity",orderDetailActivity);
 
-        //6.过滤出订单明细优惠券表数据
-        Table orderDetailCouponTable = tableEnv.sqlQuery("" +
+        //6.过滤出订单明细优惠券表
+        Table orderDetailCoupon = tableEnv.sqlQuery("" +
                 "select\n" +
                 "    `data`['id'] id,\n" +
                 "    `data`['order_id'] order_id,\n" +
@@ -132,13 +133,13 @@ public class Dwd04_TradeOrderDetail {
                 "where `database`='gmall'\n" +
                 "and `table`='order_detail_coupon'\n" +
                 "and `type`= 'insert' ");
-        tableEnv.createTemporaryView("order_detail_coupon",orderDetailCouponTable);
+        tableEnv.createTemporaryView("order_detail_coupon",orderDetailCoupon);
 
-        //7.四表关联
+        //7.  4表join
         Table resultTable = tableEnv.sqlQuery("" +
                 "select\n" +
                 "\n" +
-                "oi.id,\n" +
+                "oi.id order_id,\n" +
                 "oi.consignee,\n" +
                 "oi.consignee_tel,\n" +
                 "oi.total_amount,\n" +
@@ -162,7 +163,7 @@ public class Dwd04_TradeOrderDetail {
                 "oi.feight_fee,\n" +
                 "oi.feight_fee_reduce,\n" +
                 "oi.refundable_time,\n" +
-                "oi.rt,\n" +
+                "oi.pt,\n" +
 
                 "od.id order_detail_id,\n" +
                 "od.sku_id,\n" +
@@ -191,11 +192,10 @@ public class Dwd04_TradeOrderDetail {
                 "left join order_detail_coupon oc\n" +
                 "on od.id=oc.order_detail_id");
         tableEnv.createTemporaryView("result_table",resultTable);
-        //resultTable.execute().print();
 
         //8.构建kafka sink table
         tableEnv.executeSql("" +
-                "create table dwd_order_add(\n" +
+                "create table dwd_order_cancel(\n" +
                 "    `order_id` string,\n" +
                 "    `consignee` string,\n" +
                 "    `consignee_tel` string,\n" +
@@ -220,7 +220,7 @@ public class Dwd04_TradeOrderDetail {
                 "    `feight_fee` string,\n" +
                 "    `feight_fee_reduce` string,\n" +
                 "    `refundable_time` string,\n" +
-                "    `rt` TIMESTAMP_LTZ(3),\n" +
+                "    `pt` TIMESTAMP_LTZ(3),\n" +
 
                 "    `order_detail_id` string,\n" +
                 "    `sku_id` string,\n" +
@@ -240,11 +240,11 @@ public class Dwd04_TradeOrderDetail {
                 "    `order_detail_coupon_id` string,\n" +
                 "    `coupon_id` string,\n" +
                 "    `coupon_use_id` string,\n" +
-                "    PRIMARY KEY (`order_detail_id`) NOT ENFORCED\n" +
-                ")"+KafkaUtil.getUpsertKafkaSinkDDL(Constant.TOPIC_DWD_TRADE_ORDER_DETAIL));
+                "     PRIMARY KEY (`order_detail_id`) NOT ENFORCED\n" +
+                ")"+KafkaUtil.getUpsertKafkaSinkDDL(Constant.TOPIC_DWD_TRADE_CANCEL_DETAIL));
 
-        //9.数据写出到kafka
-        tableEnv.executeSql("insert into dwd_order_add select * from result_table");
+        //9. 写出到kafka
+        tableEnv.executeSql("insert into dwd_order_cancel select * from result_table");
 
     }
 }

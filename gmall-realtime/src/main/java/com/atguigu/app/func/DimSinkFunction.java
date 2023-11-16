@@ -3,9 +3,11 @@ package com.atguigu.app.func;
 import com.alibaba.fastjson.JSONObject;
 import com.atguigu.common.Constant;
 import com.atguigu.util.HBaseUtil;
+import com.atguigu.util.JedisUtil;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.hadoop.hbase.client.Connection;
+import redis.clients.jedis.Jedis;
 
 /**
  * 向hbase中写入数据
@@ -14,10 +16,12 @@ import org.apache.hadoop.hbase.client.Connection;
  */
 public class DimSinkFunction extends RichSinkFunction<JSONObject> {
     private Connection connection;
+    private Jedis jedis;
 
     @Override
     public void open(Configuration parameters) throws Exception {
         connection = HBaseUtil.getConnection();
+        jedis = JedisUtil.getJedis();
     }
 
     /*   value数据样式(数据流中已经过滤过的数据)
@@ -63,8 +67,13 @@ public class DimSinkFunction extends RichSinkFunction<JSONObject> {
         //向Hbase中插入数据或删除数据
         if ("delete".equals(type)){
             HBaseUtil.deleteData(connection, Constant.HBASE_NAME_SPACE, sinkTable, rowKey);
+            JedisUtil.deleteData(jedis,sinkTable,rowKey);//如果hbase里面删除数据,redis里面同步删除
         }else {
             data.remove(rowKeyColumn);
+            //如果为更新操作,则将更新数据直接同步到Redis中  保证Redis与HBase数据存储的一致性
+            if ("update".equals(type)) {
+                JedisUtil.setData(jedis, sinkTable, rowKey, data.toJSONString());
+            }
             HBaseUtil.putJsonData(connection, Constant.HBASE_NAME_SPACE, sinkTable, rowKey, columnFamily, data );
         }
     }

@@ -35,6 +35,7 @@ public class Dwd03_TradeCartAdd {
 
         //2.读取kafka中topic_db数据并创建动态表
         tableEnv.executeSql(KafkaUtil.getTopicDbDDL("Dwd03_TradeCartAdd"));
+        //tableEnv.sqlQuery("select * from ods_topic_db").execute().print();
 
         //3.过滤出交易域加购事实表
         Table cartInfoTable = tableEnv.sqlQuery("" +
@@ -57,6 +58,7 @@ public class Dwd03_TradeCartAdd {
                 "and `table`='cart_info'\n" +
                 "and (`type`= 'insert' or (`type`= 'update' and `old`['sku_num'] is not null and cast(`data`['sku_num'] as int)>cast(`old`['sku_num'] as int)))");
         tableEnv.createTemporaryView("cart_info",cartInfoTable);
+        //cartInfoTable.execute().print();
 
         //4.构建kafka Sink Table
         tableEnv.executeSql("" +

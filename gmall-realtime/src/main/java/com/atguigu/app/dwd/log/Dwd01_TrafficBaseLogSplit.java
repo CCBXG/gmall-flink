@@ -27,6 +27,7 @@ import java.text.SimpleDateFormat;
  * 流量域未经加工的事务事实表（日志分流）
  * 任务:数据清洗,新老访客状态标记修复,分流
  */
+//数据样式:{"common":{"ar":"33","ba":"xiaomi","ch":"xiaomi","is_new":"1","md":"xiaomi 12 ultra ","mid":"mid_269","os":"Android 12.0","sid":"564eedf4-4417-4d76-8065-e47565d072e2","uid":"426","vc":"v2.1.134"},"displays":[{"item":"19","item_type":"sku_id","pos_id":10,"pos_seq":0},{"item":"8","item_type":"sku_id","pos_id":10,"pos_seq":1},{"item":"6","item_type":"sku_id","pos_id":10,"pos_seq":2},{"item":"30","item_type":"sku_id","pos_id":10,"pos_seq":3},{"item":"25","item_type":"sku_id","pos_id":10,"pos_seq":4},{"item":"10","item_type":"sku_id","pos_id":10,"pos_seq":5},{"item":"18","item_type":"sku_id","pos_id":10,"pos_seq":6},{"item":"13","item_type":"sku_id","pos_id":10,"pos_seq":7},{"item":"3","item_type":"sku_id","pos_id":10,"pos_seq":8}],"page":{"during_time":7068,"item":"尚硅谷多线程教学课程","item_type":"keyword","last_page_id":"search","page_id":"good_list"},"ts":1654701675413}
 //数据流:web/app -> nginx -> 日志服务器(log文件) -> Flume -> Kafka(ODS) -> FlinkApp -> Kafka(DWD)
 //程  序:Mock -> Flume(f1.sh) -> Kafka(ZK) -> Dwd01_TrafficBaseLogSplit -> Kafka(ZK)
 public class Dwd01_TrafficBaseLogSplit {
@@ -97,10 +98,12 @@ public class Dwd01_TrafficBaseLogSplit {
                         Long ts = value.getLong("ts");
                         String curDt = sdf.format(ts);
                         if ("1".equals(isNow)) {
-                            if (!firstDt.equals(curDt)) {
-                                value.getJSONObject("common").put("is_now", "0");
-                            } else {
+                            if (firstDt == null || firstDt.equals(curDt)) {
+                                //更新状态
                                 firstVisitState.update(curDt);
+                            } else {
+                                //更新标记
+                                value.getJSONObject("common").put("is_new", "0");
                             }
                         } else {
                             if (firstDt == null) {
@@ -200,7 +203,6 @@ public class Dwd01_TrafficBaseLogSplit {
 
         //7.启动任务
         env.execute("Dwd01_TrafficBaseLogSplit");
-
 
     }
 }

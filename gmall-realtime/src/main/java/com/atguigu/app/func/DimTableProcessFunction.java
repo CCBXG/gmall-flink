@@ -33,7 +33,6 @@ public class DimTableProcessFunction extends BroadcastProcessFunction<JSONObject
 
     /**
      * 创建mapStateDescriptor
-     *
      * @param mapStateDescriptor 资源复用:构造器拿到已经创建过的mapStateDescriptor
      */
     public DimTableProcessFunction(MapStateDescriptor<String, TableProcess> mapStateDescriptor) {
@@ -42,7 +41,6 @@ public class DimTableProcessFunction extends BroadcastProcessFunction<JSONObject
 
     /**
      * 预加载配置表信息,提前读一遍MySQL表中的配置信息,并且建表,防止没有状态时,到来的数据丢失
-     *
      * @param parameters The configuration containing the parameters attached to the contract.
      * @throws Exception
      */
@@ -167,7 +165,6 @@ public class DimTableProcessFunction extends BroadcastProcessFunction<JSONObject
     //这个value是广播流里面的数据
     /**
      * 加载mysql中的表配置信息,加载进状态中
-     *
      * @param value The stream element.
      * @param ctx   A {@link Context} that allows querying the timestamp of the element, querying the
      *              current processing/event time and updating the broadcast state. The context is only valid
@@ -197,7 +194,6 @@ public class DimTableProcessFunction extends BroadcastProcessFunction<JSONObject
 
     /**
      * 列过滤方法
-     *
      * @param data        kafka来的数据
      * @param sinkColumns 要写入hbase表中的列   (该字段在配置表中已经写好了)
      */

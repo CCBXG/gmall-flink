@@ -2,6 +2,8 @@ package com.atguigu.util;
 
 import com.alibaba.fastjson.JSONObject;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.*;
@@ -103,7 +105,7 @@ public class HBaseUtil {
     }
 
     /**
-     * 将与分区键切分后再转为字节数组
+     * 将预分区键切分后再转为字节数组
      * sinkExtend:"00|,01|,02|,03|..."
      * @param sinkExtend  预分区键
      * @return            处理预分区键(建表时需要的数据)
@@ -218,7 +220,7 @@ public class HBaseUtil {
     }
 
     /**
-     *
+     * 获取Hbase中dim_base_dic的维表数据
      * @return
      */
     public static String getBaseDicDDL() {
@@ -232,6 +234,39 @@ public class HBaseUtil {
                 ")";
     }
 
+    /**
+     * 通过rowKey查询到一行数据
+     * @param connection hbase连接
+     * @param nameSpace  命名空间
+     * @param tableName  表名
+     * @param rowKey     要查的主键
+     * @return           查询后封装进jsonObject的结果集
+     * @throws IOException
+     */
+    public static JSONObject getData(Connection connection, String nameSpace, String tableName, String rowKey) throws IOException {
+
+        //1.获取表对象(参数为命名空间+表名)
+        Table table = connection.getTable(TableName.valueOf(nameSpace + ":" + tableName));
+
+        //2.创建get对象(参数为rowKey)
+        Get get = new Get(rowKey.getBytes());
+
+        //3.执行get操作(获取结果集)
+        Result result = table.get(get);
+
+        //4.解析结果集,封装进jsonObject对象
+        JSONObject jsonObject = new JSONObject();
+        Cell[] cells = result.rawCells();
+        for (Cell cell : cells) {
+            jsonObject.put(new String(CellUtil.cloneQualifier(cell)),new String(CellUtil.cloneValue(cell)));
+        }
+
+        //5.释放资源
+        table.close();
+
+        //6.返回数据
+        return jsonObject;
+    }
 }
 
 

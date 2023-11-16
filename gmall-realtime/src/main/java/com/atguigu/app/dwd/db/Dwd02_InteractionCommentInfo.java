@@ -39,6 +39,7 @@ public class Dwd02_InteractionCommentInfo {
         tableEnv.executeSql(KafkaUtil.getTopicDbDDL("dwd02_comment_info_230524"));
 
         //3.过滤出评价表数据以及 创建视图
+        // todo sqlQuery不是阻塞的
         Table commentInfoTable = tableEnv.sqlQuery("" +
                 "select\n" +
                 "     `data`['id'] id,\n" +
@@ -62,6 +63,7 @@ public class Dwd02_InteractionCommentInfo {
         tableEnv.executeSql(HBaseUtil.getBaseDicDDL());
 
         //5.lookUpJoin关联评价表与base_dic维表     目的:做维度退化
+        //lookUpJoin    1.必须加上时间join dim_base_dic FOR SYSTEM_TIME AS OF ci.pt    2.时间只能是处理时间
         Table resultTable = tableEnv.sqlQuery("" +
                 "select\n" +
                 "     ci.id,\n" +
@@ -80,6 +82,7 @@ public class Dwd02_InteractionCommentInfo {
         tableEnv.createTemporaryView("result_table",resultTable);
 
         //6.创建流表dwd_comment_info写入kafka的dwd_interaction_comment_info主题
+        //todo executeSql是自动阻塞的,不需要再写env.execute()。无界流的查询如果阻塞,程序就不往下面执行了;
         tableEnv.executeSql("" +
                 "create table dwd_comment_info(\n" +
                 "    `id` string,\n" +

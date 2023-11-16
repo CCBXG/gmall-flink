@@ -1,16 +1,19 @@
 package com.atguigu.util;
 
+import com.alibaba.fastjson.JSONObject;
 import com.atguigu.common.Constant;
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.api.connector.sink2.Sink;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchemaBuilder;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
+import org.apache.kafka.clients.producer.ProducerRecord;
 
+import javax.annotation.Nullable;
 import java.io.IOException;
 
 /**
@@ -57,11 +60,10 @@ public class KafkaUtil {
 
     /**
      * kafkaSink配置
-     *
      * @param topic
      * @return
      */
-    public static Sink<String> getKafkaSink(String topic) {
+    public static KafkaSink<String> getKafkaSink(String topic) {
         return KafkaSink.<String>builder()
                 .setBootstrapServers(Constant.KAFKA_SERVERS)
                 .setRecordSerializer(new KafkaRecordSerializationSchemaBuilder<String>()
@@ -72,6 +74,33 @@ public class KafkaUtil {
 //                .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
                 .build();
     }
+
+    //sink写入多个主题(缺点:主题字段key固定为sink_topic, 待写入字段的key固定为data )
+    public static KafkaSink<JSONObject>  getKafkaSink(){
+        return KafkaSink.<JSONObject>builder()
+                .setBootstrapServers(Constant.KAFKA_SERVERS)
+                .setRecordSerializer(new KafkaRecordSerializationSchema<JSONObject>() {
+                    @Nullable
+                    @Override
+                    public ProducerRecord<byte[], byte[]> serialize(JSONObject element, KafkaSinkContext context, Long timestamp) {
+                        return new ProducerRecord<>(element.getString("sink_topic"),
+                                element.getString("data").getBytes());
+                    }
+                })
+                .build();
+    }
+
+    //通用的kafkaSink
+    public static <T>KafkaSink<T>  getKafkaSink(KafkaRecordSerializationSchema<T> kafkaRecordSerializationSchema){
+        return KafkaSink.<T>builder()
+                .setBootstrapServers(Constant.KAFKA_SERVERS)
+                .setRecordSerializer(kafkaRecordSerializationSchema)
+                .build();
+    }
+
+
+
+
 
     /**
      * 获取kafka中所有topic_db中的数据

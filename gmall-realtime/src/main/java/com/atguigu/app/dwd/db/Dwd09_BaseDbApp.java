@@ -1,11 +1,9 @@
-package com.atguigu.app.dim;
+package com.atguigu.app.dwd.db;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONException;
 import com.alibaba.fastjson.JSONObject;
-import com.atguigu.app.func.DimCreateTableMapFunction;
-import com.atguigu.app.func.DimSinkFunction;
-import com.atguigu.app.func.DimTableProcessFunction;
+import com.atguigu.app.func.DwdTableProcessFunction;
 import com.atguigu.bean.TableProcess;
 import com.atguigu.common.Constant;
 import com.atguigu.util.KafkaUtil;
@@ -15,20 +13,30 @@ import com.ververica.cdc.debezium.JsonDebeziumDeserializationSchema;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.state.MapStateDescriptor;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.source.KafkaSource;
-import org.apache.flink.streaming.api.datastream.*;
+import org.apache.flink.streaming.api.datastream.BroadcastConnectedStream;
+import org.apache.flink.streaming.api.datastream.BroadcastStream;
+import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.Collector;
+import org.apache.kafka.clients.producer.ProducerRecord;
+
+import javax.annotation.Nullable;
 
 /**
  * @Author 城北徐公
- * @Date 2023/11/3-18:48
- * hbase中dim维表写入
+ * @Date 2023/11/8-11:13
+ * 事实表动态分流
+ * 任务:DWD层余下的事实表都是从topic_db中取业务数据库一张表的变更数据，按照某些条件过滤后写入Kafka的对应主题，
+ * 它们处理逻辑相似且较为简单，可以结合配置表动态分流在同一个程序中处理。(类似于dim动态分流)
  */
-//数据流：web/app -> Nginx -> 业务服务器(Mysql) -> Maxwell -> Kafka(ODS) -> FlinkApp -> HBase(DIM)
-//程  序：Mock -> maxwell.sh -> Kafka(ZK) -> DimApp -> HBase(HDFS ZK)
-public class DimApp {
+//数据流：web/app -> Nginx -> 业务服务器(Mysql) -> Maxwell -> Kafka(ODS) -> FlinkApp -> Kafka(DWD)
+//程  序：Mock -> maxwell.sh -> Kafka(ZK) -> Dwd09_BaseDbApp -> Kafka(ZK)
+public class Dwd09_BaseDbApp {
     public static void main(String[] args) throws Exception {
+
         //1.获取执行环境
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
@@ -46,10 +54,8 @@ public class DimApp {
         */
 
         //2.读取kafka topic_db主题数据创建数据流(为了方便复用,将kafkaSource的创建抽取到工具类中)
-        //主流数据样式:{"database":"gmall-220623-flink","table":"comment_info","type":"insert","ts":1669162958,"xid":1111,"xoffset":13941,"data":{"id":1595211185799847960,"user_id":119,"nick_name":null,"head_img":null,"sku_id":31,"spu_id":10,"order_id":987,"appraise":"1204","comment_txt":"评论内容：48384811984748167197482849234338563286217912223261","create_time":"2022-08-02 08:22:38","operate_time":null}}
-        KafkaSource<String> kafkaSource = KafkaUtil.getKafkaSource(Constant.TOPIC_ODS_DB, "dim-app");
-        DataStreamSource<String> kafkaDS = env
-                .fromSource(kafkaSource, WatermarkStrategy.noWatermarks(), "kafka-source");
+        KafkaSource<String> kafkaSource = KafkaUtil.getKafkaSource(Constant.TOPIC_ODS_DB, "base_db_app");
+        DataStreamSource<String> kafkaDS = env.fromSource(kafkaSource, WatermarkStrategy.noWatermarks(), "kafka-source");
 
         //3.将数据流每行数据转换为JSON对象 过滤数据
         SingleOutputStreamOperator<JSONObject> jsonObjDS = kafkaDS.flatMap(new FlatMapFunction<String, JSONObject>() {
@@ -66,8 +72,7 @@ public class DimApp {
             }
         });
 
-        //4.使用FlinkCDC读取配置信息表数据
-        //广播流数据样式:FlinkCDC：{"op":"d","before":{"sink_row_key":"id","sink_type":"dim","sink_family":"info","source_type":"ALL","sink_table":"dim_user_info","source_table":"user_info","sink_columns":"id,login_name,name,user_level,birthday,gender,create_time,operate_time"},"source":{"thread":24,"server_id":1,"version":"1.9.7.Final","file":"mysql-bin.000081","connector":"mysql","pos":10545,"name":"mysql_binlog_source","row":0,"ts_ms":1699430248000,"snapshot":"false","db":"gmall_config","table":"table_process"},"ts_ms":1699430248100}
+        //4.使用flinkCdc读取配置信息表 并做成广播
         MySqlSource<String> mySqlSource = MySqlSource.<String>builder()
                 .hostname(Constant.MYSQL_HOST)
                 .port(Constant.MYSQL_PORT)
@@ -79,23 +84,30 @@ public class DimApp {
                 .deserializer(new JsonDebeziumDeserializationSchema())
                 .build();
         DataStreamSource<String> mysqlDS = env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "mysql-source");
+        MapStateDescriptor<String, TableProcess> mapStateDescriptor = new MapStateDescriptor<String, TableProcess>("map-state",String.class, TableProcess.class);
+        BroadcastStream<String> broadcast = mysqlDS.broadcast(mapStateDescriptor);
 
-        //5.将配置信息流做成广播流并与数据流进行连接
-        //   key使用的是sourceTable字段，value使用的是TableProcess的JavaBean
-        MapStateDescriptor<String, TableProcess> mapStateDescriptor = new MapStateDescriptor<String, TableProcess>("bc-state", String.class, TableProcess.class);
-        BroadcastStream<TableProcess> broadcast = mysqlDS
-                .map(new DimCreateTableMapFunction())
-                .broadcast(mapStateDescriptor);
-        BroadcastConnectedStream<JSONObject, TableProcess> connectDS = jsonObjDS.connect(broadcast);
+        //5.连接主流与广播流
+        BroadcastConnectedStream<JSONObject, String> connectDS = jsonObjDS.connect(broadcast);
 
-        //6.处理连接流  根据配置信息过滤数据流
-        SingleOutputStreamOperator<JSONObject> hbaseDS = connectDS.process(new DimTableProcessFunction(mapStateDescriptor));
-        hbaseDS.print();
+        //6.处理连接流,根据广播信息过滤主流数据
+        SingleOutputStreamOperator<JSONObject> resultDS = connectDS.process(new DwdTableProcessFunction(mapStateDescriptor));
 
-        //7.将过滤后的数据写入到hbase中
-        DataStreamSink<JSONObject> sinkDS = hbaseDS.addSink(new DimSinkFunction());
+        //7.将数据写出到kafka(一次要写入到多个主题,不能使用原来的只传一个主题的sink)
+        //resultDS.sinkTo(KafkaUtil.getKafkaSink());
+        resultDS.sinkTo(KafkaUtil.getKafkaSink(new KafkaRecordSerializationSchema<JSONObject>() {
+            @Nullable
+            @Override
+            public ProducerRecord<byte[], byte[]> serialize(JSONObject element, KafkaSinkContext context, Long timestamp) {
+                return new ProducerRecord<>(
+                        element.getString("sink_topic"),
+                        element.getString("data").getBytes()
+                );
+            }
+        }));
 
         //8.启动任务
-        env.execute("DimApp");
+        env.execute();
+
     }
 }
