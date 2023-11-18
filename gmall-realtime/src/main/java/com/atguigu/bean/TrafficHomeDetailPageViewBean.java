@@ -1,6 +1,5 @@
 package com.atguigu.bean;
 
-import com.alibaba.fastjson.annotation.JSONField;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 

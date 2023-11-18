@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.PropertyNamingStrategy;
 import com.alibaba.fastjson.serializer.SerializeConfig;
 import com.atguigu.app.func.DimInfoRichMapFunction;
+import com.atguigu.app.func.DimInfoRichMapFunctionAsync;
 import com.atguigu.bean.TradeSkuOrderBean;
 import com.atguigu.common.Constant;
 import com.atguigu.util.DorisUtil;
@@ -22,6 +23,7 @@ import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
+import org.apache.flink.streaming.api.datastream.AsyncDataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -32,6 +34,7 @@ import org.apache.flink.util.Collector;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @Author 城北徐公
@@ -41,11 +44,11 @@ import java.time.Duration;
  * 统计原始金额、活动减免金额、优惠券减免金额和订单金额，并关联维度信息，将数据写入 Doris 交易域SKU粒度下单各窗口汇总表。
  * 粒度:order_detail_id
  * 度量值:原始金额、活动减免金额、优惠券减免金额和订单金额
- * 使用了旁路缓存技术
+ * 使用了旁路缓存技术+异步
  */
 //数据流：web/app -> Nginx -> 业务服务器(Mysql) -> Maxwell -> Kafka(ODS) -> FlinkApp -> Kafka(DWD) -> FlinkApp -> Doris(DWS)
 //程  序：Mock -> maxwell.sh -> Kafka(ZK) -> Dwd04_TradeOrderDetail -> Kafka(ZK) -> Dws09_TradeSkuOrderWindow(HBase HDFS ZK Redis) -> Doris
-public class Dws09_TradeSkuOrderWindow {
+public class Dws09_TradeSkuOrderWindowAsync {
     public static void main(String[] args) throws Exception {
 
         //1.获取执行环境
@@ -155,81 +158,87 @@ public class Dws09_TradeSkuOrderWindow {
                 });
 
         //6.关联维表补充维度信息(sku -> sku spu tm c1 c2 c3)  优化
-        SingleOutputStreamOperator<TradeSkuOrderBean> skuDS = reduceDS.map(new DimInfoRichMapFunction<TradeSkuOrderBean>("dim_sku_info") {
+        //关联dim_sku_info表,补充spu_id,tm_id,category3_id
+        SingleOutputStreamOperator<TradeSkuOrderBean> skuDS = AsyncDataStream.unorderedWait(reduceDS, new DimInfoRichMapFunctionAsync<TradeSkuOrderBean>("dim_sku_info") {
             @Override
-            public String getPk(TradeSkuOrderBean value) {
-                return value.getSkuId();
+            protected String getPk(TradeSkuOrderBean input) {
+                return input.getSkuId();
             }
 
             @Override
-            protected void join(TradeSkuOrderBean value, JSONObject dimInfo) {
-                value.setSpuId(dimInfo.getString("spu_id"));
-                value.setTrademarkId(dimInfo.getString("tm_id"));
-                value.setCategory3Id(dimInfo.getString("category3_id"));
+            protected void join(TradeSkuOrderBean input, JSONObject dimInfoJson) {
+                input.setSpuId(dimInfoJson.getString("spu_id"));
+                input.setTrademarkId(dimInfoJson.getString("tm_id"));
+                input.setCategory3Id(dimInfoJson.getString("category3_id"));
             }
-        });
+        }, 100, TimeUnit.SECONDS);
 
-        SingleOutputStreamOperator<TradeSkuOrderBean> spuDS = skuDS.map(new DimInfoRichMapFunction<TradeSkuOrderBean>("dim_spu_info") {
+        //关联dim_spu_info,补充spu_name
+        SingleOutputStreamOperator<TradeSkuOrderBean> spuDS = AsyncDataStream.unorderedWait(skuDS, new DimInfoRichMapFunctionAsync<TradeSkuOrderBean>("dim_spu_info") {
             @Override
-            public String getPk(TradeSkuOrderBean value) {
-                return value.getSpuId();
-            }
-
-            @Override
-            protected void join(TradeSkuOrderBean value, JSONObject dimInfo) {
-                value.setSpuName(dimInfo.getString("spu_name"));
-            }
-        });
-
-        SingleOutputStreamOperator<TradeSkuOrderBean> tmDS = spuDS.map(new DimInfoRichMapFunction<TradeSkuOrderBean>("dim_base_trademark") {
-            @Override
-            public String getPk(TradeSkuOrderBean value) {
-                return value.getTrademarkId();
+            protected String getPk(TradeSkuOrderBean input) {
+                return input.getSpuId();
             }
 
             @Override
-            protected void join(TradeSkuOrderBean value, JSONObject dimInfo) {
-                value.setTrademarkName(dimInfo.getString("tm_name"));
+            protected void join(TradeSkuOrderBean input, JSONObject dimInfoJson) {
+                input.setSpuName(dimInfoJson.getString("spu_name"));
             }
-        });
+        }, 100, TimeUnit.SECONDS);
 
-        SingleOutputStreamOperator<TradeSkuOrderBean> c3DS = tmDS.map(new DimInfoRichMapFunction<TradeSkuOrderBean>("dim_base_category3") {
+        //关联dim_base_trademark,补充tm_name
+        SingleOutputStreamOperator<TradeSkuOrderBean> tmDS = AsyncDataStream.unorderedWait(spuDS, new DimInfoRichMapFunctionAsync<TradeSkuOrderBean>("dim_base_trademark") {
             @Override
-            public String getPk(TradeSkuOrderBean value) {
-                return value.getCategory3Id();
-            }
-
-            @Override
-            protected void join(TradeSkuOrderBean value, JSONObject dimInfo) {
-                value.setCategory3Name(dimInfo.getString("name"));
-                value.setCategory2Id(dimInfo.getString("category2_id"));
-            }
-        });
-
-        SingleOutputStreamOperator<TradeSkuOrderBean> c2DS = c3DS.map(new DimInfoRichMapFunction<TradeSkuOrderBean>("dim_base_category2") {
-            @Override
-            public String getPk(TradeSkuOrderBean value) {
-                return value.getCategory2Id();
+            protected String getPk(TradeSkuOrderBean input) {
+                return input.getTrademarkId();
             }
 
             @Override
-            protected void join(TradeSkuOrderBean value, JSONObject dimInfo) {
-                value.setCategory2Name(dimInfo.getString("name"));
-                value.setCategory1Id(dimInfo.getString("category1_id"));
+            protected void join(TradeSkuOrderBean input, JSONObject dimInfoJson) {
+                input.setTrademarkName(dimInfoJson.getString("tm_name"));
             }
-        });
+        }, 100, TimeUnit.SECONDS);
 
-        SingleOutputStreamOperator<TradeSkuOrderBean> c1DS = c2DS.map(new DimInfoRichMapFunction<TradeSkuOrderBean>("dim_base_category1") {
+        //关联dim_base_category3,补充name(category3的name),category2_id
+        SingleOutputStreamOperator<TradeSkuOrderBean> c3DS = AsyncDataStream.unorderedWait(tmDS, new DimInfoRichMapFunctionAsync<TradeSkuOrderBean>("dim_base_category3") {
             @Override
-            public String getPk(TradeSkuOrderBean value) {
-                return value.getCategory1Id();
+            protected String getPk(TradeSkuOrderBean input) {
+                return input.getCategory3Id();
             }
 
             @Override
-            protected void join(TradeSkuOrderBean value, JSONObject dimInfo) {
-                value.setCategory1Name(dimInfo.getString("name"));
+            protected void join(TradeSkuOrderBean input, JSONObject dimInfoJson) {
+                input.setCategory3Name(dimInfoJson.getString("name"));
+                input.setCategory2Id(dimInfoJson.getString("category2_id"));
             }
-        });
+        }, 100, TimeUnit.SECONDS);
+
+        //关联dim_base_category2,补充name(category2的name),category2_id
+        SingleOutputStreamOperator<TradeSkuOrderBean> c2DS = AsyncDataStream.unorderedWait(c3DS, new DimInfoRichMapFunctionAsync<TradeSkuOrderBean>("dim_base_category2") {
+            @Override
+            protected String getPk(TradeSkuOrderBean input) {
+                return input.getCategory2Id();
+            }
+
+            @Override
+            protected void join(TradeSkuOrderBean input, JSONObject dimInfoJson) {
+                input.setCategory2Name(dimInfoJson.getString("name"));
+                input.setCategory1Id(dimInfoJson.getString("category1_id"));
+            }
+        }, 100, TimeUnit.SECONDS);
+
+        //关联dim_base_category1,补充name(category1的name)
+        SingleOutputStreamOperator<TradeSkuOrderBean> c1DS = AsyncDataStream.unorderedWait(c2DS, new DimInfoRichMapFunctionAsync<TradeSkuOrderBean>("dim_base_category1") {
+            @Override
+            protected String getPk(TradeSkuOrderBean input) {
+                return input.getCategory1Id();
+            }
+
+            @Override
+            protected void join(TradeSkuOrderBean input, JSONObject dimInfoJson) {
+                input.setCategory1Name(dimInfoJson.getString("name"));
+            }
+        }, 100, TimeUnit.SECONDS);
         c1DS.print();
 
         //7.写出

@@ -12,6 +12,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 /**
  * @Author 城北徐公
@@ -27,6 +29,17 @@ public class HBaseUtil {
     public static Connection getConnection() throws IOException {
         Configuration configuration = HBaseConfiguration.create();
         return ConnectionFactory.createConnection(configuration);
+    }
+
+    /**
+     * 获取异步配置连接
+     * @return
+     * @throws ExecutionException
+     * @throws InterruptedException
+     */
+    public static AsyncConnection getAsyncConnection() throws ExecutionException, InterruptedException {
+        Configuration configuration = HBaseConfiguration.create();
+        return ConnectionFactory.createAsyncConnection(configuration).get();
     }
 
 
@@ -265,6 +278,39 @@ public class HBaseUtil {
         table.close();
 
         //6.返回数据
+        return jsonObject;
+    }
+
+    /**
+     * 通过rewKey异步查询一行数据
+     * @param connection  hbase连接
+     * @param nameSpace   命名空间
+     * @param tableName   表名
+     * @param rewKey      要查的主键
+     * @return            查询后封装进jsonObject的结果集
+     * @throws ExecutionException
+     * @throws InterruptedException
+     */
+    public static JSONObject getData(AsyncConnection connection, String nameSpace, String tableName, String rewKey) throws ExecutionException, InterruptedException {
+
+        //获取表对象
+        AsyncTable<AdvancedScanResultConsumer> table = connection.getTable(TableName.valueOf(nameSpace + ":" + tableName));
+
+        //创建Get对象
+        Get get = new Get(rewKey.getBytes());
+
+        //执行Get操作
+        CompletableFuture<Result> resultCompletableFuture = table.get(get);  //Future对象使用get取出
+        Result result = resultCompletableFuture.get();
+
+        //解析result对象,封装为jsonObject
+        JSONObject jsonObject = new JSONObject();
+        Cell[] cells = result.rawCells();
+        for (Cell cell : cells) {
+            jsonObject.put(new String(CellUtil.cloneQualifier(cell)), new String(CellUtil.cloneValue(cell)));
+        }
+
+        //返回数据
         return jsonObject;
     }
 }

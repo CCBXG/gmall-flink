@@ -1,6 +1,9 @@
 package com.atguigu.util;
 
 import com.atguigu.common.Constant;
+import io.lettuce.core.RedisClient;
+import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.api.async.RedisAsyncCommands;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
@@ -33,6 +36,16 @@ public class JedisUtil {
     }
 
     /**
+     * 获取到一个 redis 线程安全的异步连接, key value 都用 utf-8 进行编码
+     * @return
+     */
+    public static StatefulRedisConnection<String,String> getAsyncRedisConnection(){
+        RedisClient redisClient = RedisClient.create("redis://hadoop102:6379");
+        System.out.println("==获取AsyncJedis客户端==");
+        return redisClient.connect();
+    }
+
+    /**
      * 向rides中写入数据,(数据结构为String,主键为"DIM:"+TableName+":"+pk)
      * @param jedis     jedis客户端连接
      * @param TableName 表名
@@ -45,6 +58,18 @@ public class JedisUtil {
         jedis.setex(redisKey, Constant.ONE_DAY,value);
     }
 
+    /**
+     * Async异步向redis里面写入数据
+     * @param redisConnection  异步连接
+     * @param TableName        表名
+     * @param pk               主键
+     * @param value            要写入的值
+     */
+    public static void setData( StatefulRedisConnection<String,String> redisConnection, String TableName, String pk, String value ){
+        String redisKey="DIM:"+TableName+":"+pk;
+        RedisAsyncCommands<String, String> async = redisConnection.async();
+        async.setex(redisKey,Constant.ONE_DAY,value);
+    }
 
     /**
      * 通过redisKey删除一条数据,(数据结构为String,主键为"DIM:"+TableName+":"+pk)
